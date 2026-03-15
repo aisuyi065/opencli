@@ -125,9 +125,23 @@ function extractCookiesViaPython(): Record<string, string> | null {
 function loadCookieHeader(): string {
   if (_cachedCookieHeader) return _cachedCookieHeader;
 
-  // Priority 1: boss-cli credential file
-  const credPath = path.join(os.homedir(), '.config', 'boss-cli', 'credential.json');
+  // Priority 1: extract fresh from Chrome via browser-cookie3
+  const extracted = extractCookiesViaPython();
+  if (extracted && Object.keys(extracted).length > 0) {
+    _cachedCookieHeader = Object.entries(extracted).map(([k, v]) => `${k}=${v}`).join('; ');
+    // Save for future use
+    try {
+      const configDir = path.join(os.homedir(), '.config', 'boss-cli');
+      const credPath = path.join(configDir, 'credential.json');
+      fs.mkdirSync(configDir, { recursive: true });
+      fs.writeFileSync(credPath, JSON.stringify({ cookies: extracted, saved_at: Date.now() / 1000 }, null, 2));
+    } catch { /* ignore save errors */ }
+    return _cachedCookieHeader;
+  }
+
+  // Priority 2: boss-cli credential file (fallback)
   try {
+    const credPath = path.join(os.homedir(), '.config', 'boss-cli', 'credential.json');
     const data = JSON.parse(fs.readFileSync(credPath, 'utf-8'));
     const cookies: Record<string, string> = data.cookies || {};
     if (Object.keys(cookies).length > 0) {
@@ -135,19 +149,6 @@ function loadCookieHeader(): string {
       return _cachedCookieHeader;
     }
   } catch { /* not available */ }
-
-  // Priority 2: extract from Chrome via browser-cookie3
-  const extracted = extractCookiesViaPython();
-  if (extracted && Object.keys(extracted).length > 0) {
-    _cachedCookieHeader = Object.entries(extracted).map(([k, v]) => `${k}=${v}`).join('; ');
-    // Save for future use
-    try {
-      const configDir = path.join(os.homedir(), '.config', 'boss-cli');
-      fs.mkdirSync(configDir, { recursive: true });
-      fs.writeFileSync(credPath, JSON.stringify({ cookies: extracted, saved_at: Date.now() / 1000 }, null, 2));
-    } catch { /* ignore save errors */ }
-    return _cachedCookieHeader;
-  }
 
   throw new Error(
     'BOSS 直聘需要 Cookie 登录态。请确保:\n' +
