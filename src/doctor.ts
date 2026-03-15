@@ -17,6 +17,7 @@ export type DoctorOptions = {
   shellRc?: string;
   configPaths?: string[];
   token?: string;
+  cliVersion?: string;
 };
 
 export type ShellFileStatus = {
@@ -39,6 +40,7 @@ export type McpConfigStatus = {
 };
 
 export type DoctorReport = {
+  cliVersion?: string;
   envToken: string | null;
   envFingerprint: string | null;
   shellFiles: ShellFileStatus[];
@@ -284,6 +286,7 @@ export async function runBrowserDoctor(opts: DoctorOptions = {}): Promise<Doctor
   const recommendedToken = opts.token ?? envToken ?? (uniqueTokens.length === 1 ? uniqueTokens[0] : cdpToken) ?? null;
 
   const report: DoctorReport = {
+    cliVersion: opts.cliVersion,
     envToken,
     envFingerprint: getTokenFingerprint(envToken ?? undefined),
     shellFiles,
@@ -322,7 +325,7 @@ export function renderBrowserDoctorReport(report: DoctorReport): string {
   ].filter((value): value is string => !!value);
   const uniqueFingerprints = [...new Set(tokenFingerprints)];
   const hasMismatch = uniqueFingerprints.length > 1;
-  const lines = ['opencli doctor', ''];
+  const lines = [`opencli v${report.cliVersion ?? 'unknown'} doctor`, ''];
   lines.push(statusLine(report.remoteDebuggingEnabled ? 'OK' : 'WARN', `Chrome remote debugging: ${report.remoteDebuggingEnabled ? 'enabled' : 'disabled'}`));
   if (report.remoteDebuggingEndpoint) lines.push(`     ${report.remoteDebuggingEndpoint}`);
 

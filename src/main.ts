@@ -101,7 +101,7 @@ program.command('doctor')
   .action(async (opts) => {
     const { runBrowserDoctor, renderBrowserDoctorReport, applyBrowserDoctorFix } = await import('./doctor.js');
     const configPaths = opts.mcpConfig ? String(opts.mcpConfig).split(',').map((s: string) => s.trim()).filter(Boolean) : undefined;
-    const report = await runBrowserDoctor({ token: opts.token, shellRc: opts.shellRc, configPaths });
+    const report = await runBrowserDoctor({ token: opts.token, shellRc: opts.shellRc, configPaths, cliVersion: PKG_VERSION });
     console.log(renderBrowserDoctorReport(report));
     if (opts.fix) {
       const written = await applyBrowserDoctorFix(report, { fix: true, yes: opts.yes, token: opts.token, shellRc: opts.shellRc, configPaths });
