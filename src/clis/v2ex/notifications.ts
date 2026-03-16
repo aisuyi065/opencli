@@ -11,7 +11,7 @@ cli({
   domain: 'www.v2ex.com',
   strategy: Strategy.COOKIE,
   browser: true,
-  forceExtension: true,
+
   args: [
     { name: 'limit', type: 'int', default: 20, help: 'Number of notifications' }
   ],

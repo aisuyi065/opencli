@@ -41,9 +41,9 @@ OpenCLI 通过 Chrome 浏览器 + [Playwright MCP Bridge](https://github.com/nic
 
 > **⚠️ 重要**：大多数命令复用你的 Chrome 登录状态。运行命令前，你必须已在 Chrome 中打开目标网站并完成登录。如果获取到空数据或报错，请先检查你的浏览器登录状态。
 
-为了让 OpenCLI 能够联通你的浏览器，你需要配置连接方式。**强烈建议以下两种方式都配置上**，互为后备：
+OpenCLI 通过 Playwright MCP Bridge 扩展与你的浏览器通信。
 
-### 连接方式 A：Playwright MCP Bridge 扩展（首选）
+### Playwright MCP Bridge 扩展配置
 
 1. 安装 **[Playwright MCP Bridge](https://chromewebstore.google.com/detail/playwright-mcp-bridge/mmlmfjhmonkocbjadbfplnigmagldckm)** 扩展
 2. 在浏览器插件栏点击该插件，或者在插件设置页获取你的 Extension Token。
@@ -71,16 +71,6 @@ OpenCLI 通过 Chrome 浏览器 + [Playwright MCP Bridge](https://github.com/nic
 ```bash
 export PLAYWRIGHT_MCP_EXTENSION_TOKEN="<你的-token>"
 ```
-
-### 连接方式 B：Chrome 144+ CDP 自动发现（备选）
-
-无需安装任何扩展。只需开启 Chrome 内置的远程调试：
-
-1. 在 Chrome 中打开 `chrome://inspect#remote-debugging`
-2. 勾选 **"允许对此浏览器实例进行远程调试" (Allow remote debugging for this browser instance)**
-3. 运行时设置环境变量 `OPENCLI_USE_CDP=1`
-
-*也可通过 `OPENCLI_CDP_ENDPOINT` 环境变量手动指定 CDP endpoint 地址。*
 
 ## 快速开始
 
@@ -184,8 +174,6 @@ opencli cascade https://api.example.com/data
 - **"Failed to connect to Playwright MCP Bridge"** 报错
   - 确保你当前的 Chrome 已安装且**开启了** Playwright MCP Bridge 浏览器插件。
   - 如果是刚装完插件，需要重启 Chrome 浏览器。
-- **"CDP command failed" / "被风控拦截"**
-  - 有些网站（例如 BOSS 直聘）会因为开了 DevTools 或者 CDP 端口拦截验证。OpenCLI 有 cookie 降级机制，通常不需要干预，不用去强行加上 CDP 标识参数即可。
 - **返回空数据，或者报错 "Unauthorized"**
   - Chrome 里的登录态可能已经过期（甚至被要求过滑动验证码）。请打开当前 Chrome 页面，在新标签页重新手工登录或刷新该页面。
 - **Node API 错误 (如 parseArgs, fs 等)**

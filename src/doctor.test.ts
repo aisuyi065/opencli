@@ -92,18 +92,12 @@ describe('doctor report rendering', () => {
       envFingerprint: 'fp1',
       shellFiles: [{ path: '/tmp/.zshrc', exists: true, token: 'abc123', fingerprint: 'fp1' }],
       configs: [{ path: '/tmp/mcp.json', exists: true, format: 'json', token: 'abc123', fingerprint: 'fp1', writable: true }],
-      remoteDebuggingEnabled: true,
-      remoteDebuggingEndpoint: 'ws://127.0.0.1:9222/devtools/browser/test',
-      cdpEnabled: false,
-      cdpToken: null,
-      cdpFingerprint: null,
       recommendedToken: 'abc123',
       recommendedFingerprint: 'fp1',
       warnings: [],
       issues: [],
     });
 
-    expect(text).toContain('[OK] Chrome remote debugging: enabled');
     expect(text).toContain('[OK] Environment token: configured (fp1)');
     expect(text).toContain('[OK] MCP config /tmp/mcp.json: configured (fp1)');
   });
@@ -114,18 +108,12 @@ describe('doctor report rendering', () => {
       envFingerprint: 'fp1',
       shellFiles: [{ path: '/tmp/.zshrc', exists: true, token: 'def456', fingerprint: 'fp2' }],
       configs: [{ path: '/tmp/mcp.json', exists: true, format: 'json', token: 'abc123', fingerprint: 'fp1', writable: true }],
-      remoteDebuggingEnabled: false,
-      remoteDebuggingEndpoint: null,
-      cdpEnabled: false,
-      cdpToken: null,
-      cdpFingerprint: null,
       recommendedToken: 'abc123',
       recommendedFingerprint: 'fp1',
-      warnings: ['Chrome remote debugging appears to be disabled or Chrome is not currently exposing a DevTools endpoint.'],
+      warnings: [],
       issues: ['Detected inconsistent Playwright MCP tokens across env/config files.'],
     });
 
-    expect(text).toContain('[WARN] Chrome remote debugging: disabled');
     expect(text).toContain('[MISMATCH] Environment token: configured (fp1)');
     expect(text).toContain('[MISMATCH] Shell file /tmp/.zshrc: configured (fp2)');
     expect(text).toContain('[MISMATCH] Recommended token fingerprint: fp1');

@@ -4,7 +4,7 @@ import * as path from 'node:path';
 import { createInterface } from 'node:readline/promises';
 import { stdin as input, stdout as output } from 'node:process';
 import type { IPage } from './types.js';
-import { PlaywrightMCP, discoverChromeEndpoint, getTokenFingerprint } from './browser.js';
+import { PlaywrightMCP, getTokenFingerprint } from './browser.js';
 import { browserSession } from './runtime.js';
 
 const PLAYWRIGHT_SERVER_NAME = 'playwright';
@@ -45,11 +45,6 @@ export type DoctorReport = {
   envFingerprint: string | null;
   shellFiles: ShellFileStatus[];
   configs: McpConfigStatus[];
-  remoteDebuggingEnabled: boolean;
-  remoteDebuggingEndpoint: string | null;
-  cdpEnabled: boolean;
-  cdpToken: string | null;
-  cdpFingerprint: string | null;
   recommendedToken: string | null;
   recommendedFingerprint: string | null;
   warnings: string[];
@@ -225,45 +220,10 @@ function readConfigStatus(filePath: string): McpConfigStatus {
   }
 }
 
-async function extractTokenViaCdp(): Promise<string | null> {
-  if (!(process.env.OPENCLI_USE_CDP === '1' || process.env.OPENCLI_CDP_ENDPOINT))
-    return null;
-  const candidates = [
-    `chrome-extension://${PLAYWRIGHT_EXTENSION_ID}/options.html`,
-    `chrome-extension://${PLAYWRIGHT_EXTENSION_ID}/popup.html`,
-    `chrome-extension://${PLAYWRIGHT_EXTENSION_ID}/connect.html`,
-    `chrome-extension://${PLAYWRIGHT_EXTENSION_ID}/index.html`,
-  ];
-  const result = await browserSession(PlaywrightMCP, async (page: IPage) => {
-    for (const url of candidates) {
-      try {
-        await page.goto(url);
-        await page.wait(1);
-        const token = await page.evaluate(`() => {
-          const values = new Set();
-          const push = (value) => {
-            if (!value || typeof value !== 'string') return;
-            for (const match of value.matchAll(/[A-Za-z0-9_-]{24,}/g)) values.add(match[0]);
-          };
-          document.querySelectorAll('input, textarea, code, pre, span, div').forEach((el) => {
-            push(el.value);
-            push(el.textContent || '');
-            push(el.getAttribute && el.getAttribute('value'));
-          });
-          return Array.from(values);
-        }`);
-        const matches = Array.isArray(token) ? token.filter((v: string) => v.length >= 24) : [];
-        if (matches.length > 0) return matches.sort((a: string, b: string) => b.length - a.length)[0];
-      } catch {}
-    }
-    return null;
-  });
-  return typeof result === 'string' && result ? result : null;
-}
+
 
 export async function runBrowserDoctor(opts: DoctorOptions = {}): Promise<DoctorReport> {
   const envToken = process.env[PLAYWRIGHT_TOKEN_ENV] ?? null;
-  const remoteDebuggingEndpoint = await discoverChromeEndpoint().catch(() => null);
   const shellPath = opts.shellRc ?? getDefaultShellRcPath();
   const shellFiles: ShellFileStatus[] = [shellPath].map((filePath) => {
     if (!fileExists(filePath)) return { path: filePath, exists: false, token: null, fingerprint: null };
@@ -273,17 +233,15 @@ export async function runBrowserDoctor(opts: DoctorOptions = {}): Promise<Doctor
   });
   const configPaths = opts.configPaths?.length ? opts.configPaths : getDefaultMcpConfigPaths();
   const configs = configPaths.map(readConfigStatus);
-  const cdpToken = !opts.token && !envToken ? await extractTokenViaCdp().catch(() => null) : null;
 
   const allTokens = [
     opts.token ?? null,
     envToken,
     ...shellFiles.map(s => s.token),
     ...configs.map(c => c.token),
-    cdpToken,
   ].filter((v): v is string => !!v);
   const uniqueTokens = [...new Set(allTokens)];
-  const recommendedToken = opts.token ?? envToken ?? (uniqueTokens.length === 1 ? uniqueTokens[0] : cdpToken) ?? null;
+  const recommendedToken = opts.token ?? envToken ?? (uniqueTokens.length === 1 ? uniqueTokens[0] : null) ?? null;
 
   const report: DoctorReport = {
     cliVersion: opts.cliVersion,
@@ -291,11 +249,6 @@ export async function runBrowserDoctor(opts: DoctorOptions = {}): Promise<Doctor
     envFingerprint: getTokenFingerprint(envToken ?? undefined),
     shellFiles,
     configs,
-    remoteDebuggingEnabled: !!remoteDebuggingEndpoint,
-    remoteDebuggingEndpoint,
-    cdpEnabled: process.env.OPENCLI_USE_CDP === '1' || !!process.env.OPENCLI_CDP_ENDPOINT,
-    cdpToken,
-    cdpFingerprint: getTokenFingerprint(cdpToken ?? undefined),
     recommendedToken,
     recommendedFingerprint: getTokenFingerprint(recommendedToken ?? undefined),
     warnings: [],
@@ -306,13 +259,11 @@ export async function runBrowserDoctor(opts: DoctorOptions = {}): Promise<Doctor
   if (!shellFiles.some(s => s.token)) report.issues.push('Shell startup file does not export PLAYWRIGHT_MCP_EXTENSION_TOKEN.');
   if (!configs.some(c => c.token)) report.issues.push('No scanned MCP config currently contains a Playwright extension token.');
   if (uniqueTokens.length > 1) report.issues.push('Detected inconsistent Playwright MCP tokens across env/config files.');
-  if (!report.remoteDebuggingEnabled) report.warnings.push('Chrome remote debugging appears to be disabled or Chrome is not currently exposing a DevTools endpoint.');
   for (const config of configs) {
     if (config.parseError) report.warnings.push(`Could not parse ${config.path}: ${config.parseError}`);
   }
   if (!recommendedToken) {
-    if (report.cdpEnabled) report.warnings.push('CDP is enabled, but no token could be extracted automatically from the extension UI.');
-    else report.warnings.push('No token source found. Enable OPENCLI_USE_CDP=1 to allow a best-effort token read from the extension page.');
+    report.warnings.push('No token source found.');
   }
   return report;
 }
@@ -326,8 +277,6 @@ export function renderBrowserDoctorReport(report: DoctorReport): string {
   const uniqueFingerprints = [...new Set(tokenFingerprints)];
   const hasMismatch = uniqueFingerprints.length > 1;
   const lines = [`opencli v${report.cliVersion ?? 'unknown'} doctor`, ''];
-  lines.push(statusLine(report.remoteDebuggingEnabled ? 'OK' : 'WARN', `Chrome remote debugging: ${report.remoteDebuggingEnabled ? 'enabled' : 'disabled'}`));
-  if (report.remoteDebuggingEndpoint) lines.push(`     ${report.remoteDebuggingEndpoint}`);
 
   const envStatus: ReportStatus = !report.envToken ? 'MISSING' : hasMismatch ? 'MISMATCH' : 'OK';
   lines.push(statusLine(envStatus, `Environment token: ${tokenSummary(report.envToken, report.envFingerprint)}`));
@@ -354,10 +303,6 @@ export function renderBrowserDoctorReport(report: DoctorReport): string {
     lines.push(statusLine('MISSING', 'MCP config: no existing config files found in scanned locations'));
   }
   if (missingConfigCount > 0) lines.push(`     Other scanned config locations not present: ${missingConfigCount}`);
-  if (report.cdpEnabled) {
-    const cdpStatus: ReportStatus = report.cdpToken ? 'OK' : 'WARN';
-    lines.push(statusLine(cdpStatus, `CDP token probe: ${tokenSummary(report.cdpToken, report.cdpFingerprint)}`));
-  }
   lines.push('');
   lines.push(statusLine(
     hasMismatch ? 'MISMATCH' : report.recommendedToken ? 'OK' : 'WARN',
@@ -391,7 +336,7 @@ function writeFileWithMkdir(filePath: string, content: string): void {
 
 export async function applyBrowserDoctorFix(report: DoctorReport, opts: DoctorOptions = {}): Promise<string[]> {
   const token = opts.token ?? report.recommendedToken;
-  if (!token) throw new Error('No Playwright MCP token is available to write. Provide --token or enable CDP token probing first.');
+  if (!token) throw new Error('No Playwright MCP token is available to write. Provide --token first.');
 
   const plannedWrites: string[] = [];
   const shellPath = opts.shellRc ?? report.shellFiles[0]?.path ?? getDefaultShellRcPath();

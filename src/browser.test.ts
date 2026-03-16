@@ -75,13 +75,5 @@ describe('PlaywrightMCP state', () => {
     await expect(mcp.connect()).rejects.toThrow('Playwright MCP is closing');
   });
 
-  it('tracks backend mode for lifecycle policy', async () => {
-    const mcp = new PlaywrightMCP();
 
-    expect((mcp as any)._mode).toBeNull();
-
-    await mcp.close();
-
-    expect((mcp as any)._mode).toBeNull();
-  });
 });

@@ -69,7 +69,7 @@ cli({
   description: 'BOSS直聘搜索职位',
   domain: 'www.zhipin.com',
   strategy: Strategy.COOKIE,
-  forceExtension: true, // BOSS Zhipin detects CDP mode — must use extension bridge
+
   browser: true,
   args: [
     { name: 'query', required: true, help: 'Search keyword (e.g. AI agent, 前端)' },

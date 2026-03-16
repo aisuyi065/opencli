@@ -1,113 +1,15 @@
 /**
- * Browser interaction via Chrome DevTools Protocol.
- * Connects to an existing Chrome browser through CDP auto-discovery or extension bridge.
+ * Browser interaction via Playwright MCP Bridge extension.
+ * Connects to an existing Chrome browser through the extension.
  */
 
 import { spawn, execSync, type ChildProcess } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import * as http from 'node:http';
-import * as net from 'node:net';
 import { fileURLToPath } from 'node:url';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { formatSnapshot } from './snapshotFormatter.js';
-
-/**
- * Chrome 144+ auto-discovery: read DevToolsActivePort file to get CDP endpoint.
- *
- * Starting with Chrome 144, users can enable remote debugging from
- * chrome://inspect#remote-debugging without any command-line flags.
- * Chrome writes the active port and browser GUID to a DevToolsActivePort file
- * in the user data directory, which we read to construct the WebSocket endpoint.
- *
- * Priority: OPENCLI_CDP_ENDPOINT env > DevToolsActivePort auto-discovery > --extension fallback
- */
-
-/** Quick TCP port probe to verify Chrome is actually listening */
-function isPortReachable(port: number, host = '127.0.0.1', timeoutMs = 800): Promise<boolean> {
-  return new Promise(resolve => {
-    const sock = net.createConnection({ port, host });
-    sock.setTimeout(timeoutMs);
-    sock.on('connect', () => { sock.destroy(); resolve(true); });
-    sock.on('error', () => resolve(false));
-    sock.on('timeout', () => { sock.destroy(); resolve(false); });
-  });
-}
-
-/**
- * Verify the CDP HTTP JSON API is functional.
- * Chrome's chrome://inspect#remote-debugging mode writes DevToolsActivePort
- * but doesn't expose the full CDP HTTP API (/json/version), which means
- * Playwright's connectOverCDP won't work properly (init succeeds but
- * all tool calls hang silently).
- */
-export function isCdpApiAvailable(port: number, host = '127.0.0.1', timeoutMs = 2000): Promise<boolean> {
-  return new Promise(resolve => {
-    const req = http.get(`http://${host}:${port}/json/version`, { timeout: timeoutMs }, (res) => {
-      let body = '';
-      res.on('data', (chunk: Buffer) => { body += chunk.toString(); });
-      res.on('end', () => {
-        try {
-          const data = JSON.parse(body);
-          // A valid CDP endpoint returns { Browser, ... } with a webSocketDebuggerUrl
-          resolve(!!data && typeof data === 'object' && !!data.Browser);
-        } catch {
-          resolve(false);
-        }
-      });
-    });
-    req.on('error', () => resolve(false));
-    req.on('timeout', () => { req.destroy(); resolve(false); });
-  });
-}
-
-export async function discoverChromeEndpoint(): Promise<string | null> {
-  const candidates: string[] = [];
-
-  // User-specified Chrome data dir takes highest priority
-  if (process.env.CHROME_USER_DATA_DIR) {
-    candidates.push(path.join(process.env.CHROME_USER_DATA_DIR, 'DevToolsActivePort'));
-  }
-
-  // Standard Chrome/Edge user data dirs per platform
-  if (process.platform === 'win32') {
-    const localAppData = process.env.LOCALAPPDATA ?? path.join(os.homedir(), 'AppData', 'Local');
-    candidates.push(path.join(localAppData, 'Google', 'Chrome', 'User Data', 'DevToolsActivePort'));
-    candidates.push(path.join(localAppData, 'Microsoft', 'Edge', 'User Data', 'DevToolsActivePort'));
-  } else if (process.platform === 'darwin') {
-    candidates.push(path.join(os.homedir(), 'Library', 'Application Support', 'Google', 'Chrome', 'DevToolsActivePort'));
-    candidates.push(path.join(os.homedir(), 'Library', 'Application Support', 'Microsoft Edge', 'DevToolsActivePort'));
-  } else {
-    candidates.push(path.join(os.homedir(), '.config', 'google-chrome', 'DevToolsActivePort'));
-    candidates.push(path.join(os.homedir(), '.config', 'chromium', 'DevToolsActivePort'));
-    candidates.push(path.join(os.homedir(), '.config', 'microsoft-edge', 'DevToolsActivePort'));
-  }
-
-  for (const filePath of candidates) {
-    try {
-      const content = fs.readFileSync(filePath, 'utf-8').trim();
-      const lines = content.split('\n');
-      if (lines.length >= 2) {
-        const port = parseInt(lines[0], 10);
-        const browserPath = lines[1]; // e.g. /devtools/browser/<GUID>
-        if (port > 0 && browserPath.startsWith('/devtools/browser/')) {
-          const endpoint = `ws://127.0.0.1:${port}${browserPath}`;
-          // Verify the port is actually reachable (Chrome may have closed, leaving a stale file)
-          if (await isPortReachable(port)) {
-            // Verify CDP HTTP API is functional — chrome://inspect#remote-debugging
-            // writes DevToolsActivePort but doesn't expose the full CDP API,
-            // causing Playwright connectOverCDP to hang on all tool calls.
-            if (await isCdpApiAvailable(port)) {
-              return endpoint;
-            }
-          }
-        }
-      }
-    } catch {}
-  }
-  return null;
-}
 
 // Read version from package.json (single source of truth)
 const __browser_dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -116,17 +18,14 @@ const PKG_VERSION = (() => { try { return JSON.parse(fs.readFileSync(path.resolv
 const CONNECT_TIMEOUT = parseInt(process.env.OPENCLI_BROWSER_CONNECT_TIMEOUT ?? '30', 10);
 const STDERR_BUFFER_LIMIT = 16 * 1024;
 const INITIAL_TABS_TIMEOUT_MS = 1500;
-const CDP_READINESS_PROBE_TIMEOUT_MS = 5000;
 const TAB_CLEANUP_TIMEOUT_MS = 2000;
 let _cachedMcpServerPath: string | null | undefined;
 
-type ConnectFailureKind = 'missing-token' | 'extension-timeout' | 'extension-not-installed' | 'cdp-timeout' | 'mcp-init' | 'process-exit' | 'unknown';
+type ConnectFailureKind = 'missing-token' | 'extension-timeout' | 'extension-not-installed' | 'mcp-init' | 'process-exit' | 'unknown';
 type PlaywrightMCPState = 'idle' | 'connecting' | 'connected' | 'closing' | 'closed';
-type PlaywrightMCPMode = 'extension' | 'cdp' | null;
 
 type ConnectFailureInput = {
   kind: ConnectFailureKind;
-  mode: 'extension' | 'cdp';
   timeout: number;
   hasExtensionToken: boolean;
   tokenFingerprint?: string | null;
@@ -145,41 +44,31 @@ export function formatBrowserConnectError(input: ConnectFailureInput): Error {
   const suffix = stderr ? `\n\nMCP stderr:\n${stderr}` : '';
   const tokenHint = input.tokenFingerprint ? ` Token fingerprint: ${input.tokenFingerprint}.` : '';
 
-  if (input.mode === 'extension') {
-    if (input.kind === 'missing-token') {
-      return new Error(
-        'Failed to connect to Playwright MCP Bridge: PLAYWRIGHT_MCP_EXTENSION_TOKEN is not set.\n\n' +
-        'Without this token, Chrome will show a manual approval dialog for every new MCP connection. ' +
-        'Copy the token from the Playwright MCP Bridge extension and set it in BOTH your shell environment and MCP client config.' +
-        suffix,
-      );
-    }
-
-    if (input.kind === 'extension-not-installed') {
-      return new Error(
-        'Failed to connect to Playwright MCP Bridge: the browser extension did not attach.\n\n' +
-        'Make sure Chrome is running and the "Playwright MCP Bridge" extension is installed and enabled. ' +
-        'If Chrome shows an approval dialog, click Allow.' +
-        suffix,
-      );
-    }
-
-    if (input.kind === 'extension-timeout') {
-      const likelyCause = input.hasExtensionToken
-        ? `The most likely cause is that PLAYWRIGHT_MCP_EXTENSION_TOKEN does not match the token currently shown by the browser extension.${tokenHint} Re-copy the token from the extension and update BOTH your shell environment and MCP client config.`
-        : 'PLAYWRIGHT_MCP_EXTENSION_TOKEN is not configured, so the extension may be waiting for manual approval.';
-      return new Error(
-        `Timed out connecting to Playwright MCP Bridge (${input.timeout}s).\n\n` +
-        `${likelyCause} If a browser prompt is visible, click Allow. You can also switch to Chrome remote debugging mode with OPENCLI_USE_CDP=1 as a fallback.` +
-        suffix,
-      );
-    }
+  if (input.kind === 'missing-token') {
+    return new Error(
+      'Failed to connect to Playwright MCP Bridge: PLAYWRIGHT_MCP_EXTENSION_TOKEN is not set.\n\n' +
+      'Without this token, Chrome will show a manual approval dialog for every new MCP connection. ' +
+      'Copy the token from the Playwright MCP Bridge extension and set it in BOTH your shell environment and MCP client config.' +
+      suffix,
+    );
   }
 
-  if (input.mode === 'cdp' && input.kind === 'cdp-timeout') {
+  if (input.kind === 'extension-not-installed') {
     return new Error(
-      `Timed out connecting to browser via CDP (${input.timeout}s).\n\n` +
-      'Make sure Chrome is running and remote debugging is enabled at chrome://inspect#remote-debugging, or set OPENCLI_CDP_ENDPOINT explicitly.' +
+      'Failed to connect to Playwright MCP Bridge: the browser extension did not attach.\n\n' +
+      'Make sure Chrome is running and the "Playwright MCP Bridge" extension is installed and enabled. ' +
+      'If Chrome shows an approval dialog, click Allow.' +
+      suffix,
+    );
+  }
+
+  if (input.kind === 'extension-timeout') {
+    const likelyCause = input.hasExtensionToken
+      ? `The most likely cause is that PLAYWRIGHT_MCP_EXTENSION_TOKEN does not match the token currently shown by the browser extension.${tokenHint} Re-copy the token from the extension and update BOTH your shell environment and MCP client config.`
+      : 'PLAYWRIGHT_MCP_EXTENSION_TOKEN is not configured, so the extension may be waiting for manual approval.';
+    return new Error(
+      `Timed out connecting to Playwright MCP Bridge (${input.timeout}s).\n\n` +
+      `${likelyCause} If a browser prompt is visible, click Allow.` +
       suffix,
     );
   }
@@ -199,7 +88,6 @@ export function formatBrowserConnectError(input: ConnectFailureInput): Error {
 }
 
 function inferConnectFailureKind(args: {
-  mode: 'extension' | 'cdp';
   hasExtensionToken: boolean;
   stderr: string;
   rawMessage?: string;
@@ -207,7 +95,7 @@ function inferConnectFailureKind(args: {
 }): ConnectFailureKind {
   const haystack = `${args.rawMessage ?? ''}\n${args.stderr}`.toLowerCase();
 
-  if (args.mode === 'extension' && !args.hasExtensionToken)
+  if (!args.hasExtensionToken)
     return 'missing-token';
   if (haystack.includes('extension connection timeout') || haystack.includes('playwright mcp bridge'))
     return 'extension-not-installed';
@@ -215,11 +103,7 @@ function inferConnectFailureKind(args: {
     return 'mcp-init';
   if (args.exited)
     return 'process-exit';
-  if (args.mode === 'extension')
-    return 'extension-timeout';
-  if (args.mode === 'cdp')
-    return 'cdp-timeout';
-  return 'unknown';
+  return 'extension-timeout';
 }
 
 // JSON-RPC helpers
@@ -461,7 +345,6 @@ export class PlaywrightMCP {
   private _initialTabIdentities: string[] = [];
   private _closingPromise: Promise<void> | null = null;
   private _state: PlaywrightMCPState = 'idle';
-  private _mode: PlaywrightMCPMode = null;
 
   private _page: Page | null = null;
 
@@ -496,7 +379,6 @@ export class PlaywrightMCP {
     this._page = null;
     this._proc = null;
     this._buffer = '';
-    this._mode = null;
     this._initialTabIdentities = [];
     this._rejectPendingRequests(new Error('Playwright MCP connect failed'));
     PlaywrightMCP._activeInsts.delete(this);
@@ -505,7 +387,7 @@ export class PlaywrightMCP {
     }
   }
 
-  async connect(opts: { timeout?: number; forceExtension?: boolean } = {}): Promise<Page> {
+  async connect(opts: { timeout?: number } = {}): Promise<Page> {
     if (this._state === 'connected' && this._page) return this._page;
     if (this._state === 'connecting') throw new Error('Playwright MCP is already connecting');
     if (this._state === 'closing') throw new Error('Playwright MCP is closing');
@@ -519,26 +401,9 @@ export class PlaywrightMCP {
     this._state = 'connecting';
     const timeout = opts.timeout ?? CONNECT_TIMEOUT;
 
-    // Connection priority:
-    // 1. OPENCLI_CDP_ENDPOINT env var → explicit CDP endpoint
-    // 2. OPENCLI_USE_CDP=1 → auto-discover via DevToolsActivePort
-    // 3. Default → --extension mode (Playwright MCP Bridge)
-    // Some anti-bot sites (e.g. BOSS Zhipin) detect CDP — use forceExtension to bypass.
-    const forceExt = opts.forceExtension || process.env.OPENCLI_FORCE_EXTENSION === '1';
-    let cdpEndpoint: string | null = null;
-    if (!forceExt) {
-      if (process.env.OPENCLI_CDP_ENDPOINT) {
-        cdpEndpoint = process.env.OPENCLI_CDP_ENDPOINT;
-      } else if (process.env.OPENCLI_USE_CDP === '1') {
-        cdpEndpoint = await discoverChromeEndpoint();
-      }
-    }
-
     return new Promise<Page>((resolve, reject) => {
       const isDebug = process.env.DEBUG?.includes('opencli:mcp');
       const debugLog = (msg: string) => isDebug && console.error(`[opencli:mcp] ${msg}`);
-      const mode: 'extension' | 'cdp' = cdpEndpoint ? 'cdp' : 'extension';
-      this._mode = mode;
       const extensionToken = process.env.PLAYWRIGHT_MCP_EXTENSION_TOKEN;
       const tokenFingerprint = getTokenFingerprint(extensionToken);
       let stderrBuffer = '';
@@ -552,7 +417,6 @@ export class PlaywrightMCP {
         this._resetAfterFailedConnect();
         reject(formatBrowserConnectError({
           kind,
-          mode,
           timeout,
           hasExtensionToken: !!extensionToken,
           tokenFingerprint,
@@ -573,23 +437,14 @@ export class PlaywrightMCP {
       const timer = setTimeout(() => {
         debugLog('Connection timed out');
         settleError(inferConnectFailureKind({
-          mode,
           hasExtensionToken: !!extensionToken,
           stderr: stderrBuffer,
         }));
       }, timeout * 1000);
 
-      const mcpArgs: string[] = [mcpPath];
-      if (cdpEndpoint) {
-        mcpArgs.push('--cdp-endpoint', cdpEndpoint);
-      } else {
-        mcpArgs.push('--extension');
-      }
+      const mcpArgs: string[] = [mcpPath, '--extension'];
       if (process.env.OPENCLI_VERBOSE) {
-        console.error(`[opencli] CDP mode: ${cdpEndpoint ? `auto-discovered ${cdpEndpoint}` : 'fallback to --extension'}`);
-        if (mode === 'extension') {
-          console.error(`[opencli] Extension token: ${extensionToken ? `configured (fingerprint ${tokenFingerprint})` : 'missing'}`);
-        }
+        console.error(`[opencli] Extension token: ${extensionToken ? `configured (fingerprint ${tokenFingerprint})` : 'missing'}`);
       }
       if (process.env.OPENCLI_BROWSER_EXECUTABLE_PATH) {
         mcpArgs.push('--executablePath', process.env.OPENCLI_BROWSER_EXECUTABLE_PATH);
@@ -645,7 +500,6 @@ export class PlaywrightMCP {
         this._rejectPendingRequests(new Error(`Playwright MCP process exited before response${code == null ? '' : ` (code ${code})`}`));
         if (!settled) {
           settleError(inferConnectFailureKind({
-            mode,
             hasExtensionToken: !!extensionToken,
             stderr: stderrBuffer,
             exited: true,
@@ -663,7 +517,6 @@ export class PlaywrightMCP {
         debugLog('Got initialize response');
         if (resp.error) {
           settleError(inferConnectFailureKind({
-            mode,
             hasExtensionToken: !!extensionToken,
             stderr: stderrBuffer,
             rawMessage: `MCP init failed: ${resp.error.message}`,
@@ -675,29 +528,7 @@ export class PlaywrightMCP {
         debugLog(`SEND: ${initializedMsg.trim()}`);
         this._proc?.stdin?.write(initializedMsg);
 
-        if (mode === 'cdp') {
-          // CDP readiness probe: verify tool calls actually work.
-          // Some CDP endpoints (e.g. chrome://inspect mode) accept WebSocket
-          // connections and respond to MCP init but silently drop tool calls.
-          debugLog('CDP readiness probe (tabs)...');
-          withTimeout(page.tabs(), CDP_READINESS_PROBE_TIMEOUT_MS, 'CDP readiness probe timed out')
-            .then(() => {
-              debugLog('CDP readiness probe succeeded');
-              settleSuccess(page);
-            })
-            .catch((err) => {
-              debugLog(`CDP readiness probe failed: ${err.message}`);
-              settleError('cdp-timeout', {
-                rawMessage: 'CDP endpoint connected but tool calls are unresponsive. ' +
-                  'This usually means Chrome was opened with chrome://inspect#remote-debugging ' +
-                  'which is not fully compatible. Launch Chrome with --remote-debugging-port=9222 instead, ' +
-                  'or use the Playwright MCP Bridge extension (default mode).',
-              });
-            });
-          return;
-        }
-
-        // Extension mode uses tabs as a readiness probe and for tab cleanup bookkeeping.
+        // Use tabs as a readiness probe and for tab cleanup bookkeeping.
         debugLog('Fetching initial tabs count...');
         withTimeout(page.tabs(), INITIAL_TABS_TIMEOUT_MS, 'Timed out fetching initial tabs').then((tabs: any) => {
           debugLog(`Tabs response: ${typeof tabs === 'string' ? tabs : JSON.stringify(tabs)}`);
@@ -714,6 +545,7 @@ export class PlaywrightMCP {
     });
   }
 
+
   async close(): Promise<void> {
     if (this._closingPromise) return this._closingPromise;
     if (this._state === 'closed') return;
@@ -721,7 +553,7 @@ export class PlaywrightMCP {
     this._closingPromise = (async () => {
       try {
         // Extension mode opens bridge/session tabs that we can clean up best-effort.
-        if (this._mode === 'extension' && this._page && this._proc && !this._proc.killed) {
+        if (this._page && this._proc && !this._proc.killed) {
           try {
             const tabs = await withTimeout(this._page.tabs(), TAB_CLEANUP_TIMEOUT_MS, 'Timed out fetching tabs during cleanup');
             const tabEntries = extractTabEntries(tabs);
@@ -751,7 +583,6 @@ export class PlaywrightMCP {
         this._rejectPendingRequests(new Error('Playwright MCP session closed'));
         this._page = null;
         this._proc = null;
-        this._mode = null;
         this._state = 'closed';
         PlaywrightMCP._activeInsts.delete(this);
       }
@@ -844,7 +675,6 @@ export const __test__ = {
   diffTabIndexes,
   appendLimited,
   withTimeout,
-  isCdpApiAvailable,
 };
 
 function findMcpServerPath(): string | null {

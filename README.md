@@ -41,9 +41,9 @@ A CLI tool that turns **any website** into a command-line interface. **57 comman
 
 > **⚠️ Important**: Browser commands reuse your Chrome login session. You must be logged into the target website in Chrome before running commands. If you get empty data or errors, check your login status first.
 
-OpenCLI needs a way to communicate with your browser. We highly recommend configuring **both** of the following methods for maximum reliability.
+OpenCLI connects to your browser through the Playwright MCP Bridge extension.
 
-### Connection Method A: Playwright MCP Bridge Extension (Primary)
+### Playwright MCP Bridge Extension Setup
 
 1. Install **[Playwright MCP Bridge](https://chromewebstore.google.com/detail/playwright-mcp-bridge/mmlmfjhmonkocbjadbfplnigmagldckm)** extension in Chrome.
 2. Obtain your token by clicking the extension icon in the browser toolbar or from the extension settings page.
@@ -71,16 +71,6 @@ And, so that `opencli` commands can use it directly in the terminal, export it i
 ```bash
 export PLAYWRIGHT_MCP_EXTENSION_TOKEN="<your-token-here>"
 ```
-
-### Connection Method B: Chrome 144+ Auto-Discovery (Fallback)
-
-No extensions needed. Just enable Chrome's built-in remote debugging:
-
-1. Open `chrome://inspect#remote-debugging` in Chrome
-2. Check **"Allow remote debugging for this browser instance"**
-3. Set `OPENCLI_USE_CDP=1` before running opencli
-
-*You can also manually specify an endpoint via `OPENCLI_CDP_ENDPOINT` env var.*
 
 ## Quick Start
 
@@ -184,8 +174,6 @@ Explore outputs to `.opencli/explore/<site>/` (manifest.json, endpoints.json, ca
 - **"Failed to connect to Playwright MCP Bridge"**
   - Ensure the Playwright MCP extension is installed and **enabled** in your running Chrome.
   - Restart the Chrome browser if you just installed the extension.
-- **"CDP command failed" or "boss search blocked"**
-  - Some sites (like BOSS Zhipin) actively block Chrome DevTools Protocol connections. OpenCLI falls back to cookie extraction, but ensure you didn't force `--chrome-mode` unnecessarily. 
 - **Empty data returns or 'Unauthorized' error**
   - Your login session in Chrome might have expired. Open a normal Chrome tab, navigate to the target site, and log in or refresh the page to prove you are human.
 - **Node API errors**

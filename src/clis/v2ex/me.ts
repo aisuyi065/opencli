@@ -11,7 +11,7 @@ cli({
   domain: 'www.v2ex.com',
   strategy: Strategy.COOKIE,
   browser: true,
-  forceExtension: true,
+
   args: [],
   columns: ['username', 'balance', 'unread_notifications', 'daily_reward_ready'],
   func: async (page: IPage | null) => {
