@@ -1,9 +1,9 @@
 ---
 name: opencli
-description: "OpenCLI — Make any website your CLI. Zero risk, AI-powered, reuse Chrome login."
-version: 0.7.0
+description: "OpenCLI — Make any website your CLI. Zero risk, AI-powered, reuse Chrome login. 80+ commands across 19 sites."
+version: 0.7.3
 author: jackwener
-tags: [cli, browser, web, mcp, playwright, bilibili, zhihu, twitter, github, v2ex, hackernews, reddit, xiaohongshu, xueqiu, AI, agent]
+tags: [cli, browser, web, mcp, playwright, bilibili, zhihu, twitter, github, v2ex, hackernews, reddit, xiaohongshu, xueqiu, youtube, boss, coupang, AI, agent]
 ---
 
 # OpenCLI
@@ -68,6 +68,7 @@ opencli zhihu question --id 34816524     # 问题详情和回答
 opencli xiaohongshu search --keyword "美食"  # 搜索笔记
 opencli xiaohongshu notifications             # 通知（mentions/likes/connections）
 opencli xiaohongshu feed --limit 10           # 推荐 Feed
+opencli xiaohongshu me                        # 我的信息
 opencli xiaohongshu user --uid xxx             # 用户主页
 
 # 雪球 Xueqiu (browser)
@@ -131,6 +132,7 @@ opencli weibo hot --limit 10            # 微博热搜
 
 # BOSS直聘 (browser)
 opencli boss search --query "AI agent"  # 搜索职位
+opencli boss detail --securityId xxx    # 职位详情
 
 # YouTube (browser)
 opencli youtube search --query "rust"   # 搜索视频
@@ -160,7 +162,8 @@ opencli list -f yaml        # YAML output
 opencli validate            # Validate all CLI definitions
 opencli validate bilibili   # Validate specific site
 opencli setup               # Interactive token setup (auto-discover + TUI checkbox)
-opencli doctor              # Diagnose token config across all tools
+opencli doctor              # Diagnose token & extension config across all tools
+opencli doctor --live       # Also test live browser connectivity
 opencli doctor --fix -y     # Auto-fix all config files (non-interactive)
 ```
 

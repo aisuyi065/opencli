@@ -1,7 +1,7 @@
 # OpenCLI
 
 > **Make any website your CLI.**  
-> Zero risk · Reuse Chrome login · AI-powered discovery
+> Zero risk · Reuse Chrome login · AI-powered discovery · 80+ commands · 19 sites
 
 [中文文档](./README.zh-CN.md)
 
@@ -9,7 +9,7 @@
 [![Node.js Version](https://img.shields.io/node/v/@jackwener/opencli?style=flat-square)](https://nodejs.org)
 [![License](https://img.shields.io/npm/l/@jackwener/opencli?style=flat-square)](./LICENSE)
 
-A CLI tool that turns **any website** into a command-line interface — bilibili, zhihu, xiaohongshu, twitter, reddit, and many more — powered by browser session reuse and AI-native discovery.
+A CLI tool that turns **any website** into a command-line interface — Bilibili, Zhihu, 小红书, Twitter/X, Reddit, YouTube, and [many more](#built-in-commands) — powered by browser session reuse and AI-native discovery.
 
 ---
 
@@ -32,8 +32,9 @@ A CLI tool that turns **any website** into a command-line interface — bilibili
 
 - **Account-safe** — Reuses Chrome's logged-in state; your credentials never leave the browser.
 - **AI Agent ready** — `explore` discovers APIs, `synthesize` generates adapters, `cascade` finds auth strategies.
+- **Self-healing setup** — `opencli setup` auto-discovers tokens; `opencli doctor` diagnoses config across 10+ tools; `--fix` repairs them all.
 - **Dynamic Loader** — Simply drop `.ts` or `.yaml` adapters into the `clis/` folder for auto-registration.
-- **Dual-Engine Architecture** — Supports both YAML declarative data pipelines and robust browser runtime typescript injections.
+- **Dual-Engine Architecture** — Supports both YAML declarative data pipelines and robust browser runtime TypeScript injections.
 
 ## Prerequisites
 
@@ -85,10 +86,12 @@ export PLAYWRIGHT_MCP_EXTENSION_TOKEN="<your-token-here>"
 
 </details>
 
-Verify with `opencli doctor` — shows colored status for all config locations:
+Verify with `opencli doctor` — shows colored status for extension install, token consistency, and all config locations:
 
 ```bash
-opencli doctor
+opencli doctor            # Token & config diagnosis
+opencli doctor --live     # Also test live browser connectivity
+opencli doctor --fix -y   # Auto-fix all mismatched configs
 ```
 
 ## Quick Start
@@ -130,27 +133,29 @@ npm install -g @jackwener/opencli@latest
 
 ## Built-in Commands
 
-| Site | Commands | Mode |
-|------|----------|------|
-| **bilibili** | `hot` `search` `me` `favorite` `history` `feed` `subtitle` `dynamic` `ranking` `following` `user-videos` | 🔐 Browser |
-| **zhihu** | `hot` `search` `question` | 🔐 Browser |
-| **xiaohongshu** | `search` `notifications` `feed` `user` | 🔐 Browser |
-| **xueqiu** | `feed` `hot-stock` `hot` `search` `stock` `watchlist` | 🔐 Browser |
-| **twitter** | `trending` `bookmarks` `profile` `search` `timeline` `thread` `following` `followers` `notifications` `post` `reply` `delete` `like` `article` `follow` `unfollow` `bookmark` `unbookmark` | 🔐 Browser |
-| **reddit** | `hot` `frontpage` `popular` `search` `subreddit` `read` `user` `user-posts` `user-comments` `upvote` `save` `comment` `subscribe` `saved` `upvoted` | 🔐 Browser |
-| **weibo** | `hot` | 🔐 Browser |
-| **boss** | `search` `detail` | 🔐 Browser |
-| **coupang** | `search` `add-to-cart` | 🔐 Browser |
-| **youtube** | `search` `video` `transcript` | 🔐 Browser |
-| **linkedin** | `search` | 🔐 Browser |
-| **yahoo-finance** | `quote` | 🔐 Browser |
-| **reuters** | `search` | 🔐 Browser |
-| **smzdm** | `search` | 🔐 Browser |
-| **ctrip** | `search` | 🔐 Browser |
-| **github** | `search` | 🌐 Public |
-| **v2ex** | `hot` `latest` `topic` `daily` `me` `notifications` | 🌐 Public / 🔐 Browser |
-| **hackernews** | `top` | 🌐 Public |
-| **bbc** | `news` | 🌐 Public |
+**19 sites · 80+ commands** — run `opencli list` for the live registry.
+
+| Site | Commands | Count | Mode |
+|------|----------|:-----:|------|
+| **twitter** | `trending` `bookmarks` `profile` `search` `timeline` `thread` `following` `followers` `notifications` `post` `reply` `delete` `like` `article` `follow` `unfollow` `bookmark` `unbookmark` | 18 | 🔐 Browser |
+| **reddit** | `hot` `frontpage` `popular` `search` `subreddit` `read` `user` `user-posts` `user-comments` `upvote` `save` `comment` `subscribe` `saved` `upvoted` | 15 | 🔐 Browser |
+| **bilibili** | `hot` `search` `me` `favorite` `history` `feed` `subtitle` `dynamic` `ranking` `following` `user-videos` | 11 | 🔐 Browser |
+| **v2ex** | `hot` `latest` `topic` `daily` `me` `notifications` | 6 | 🌐 / 🔐 |
+| **xueqiu** | `feed` `hot-stock` `hot` `search` `stock` `watchlist` | 6 | 🔐 Browser |
+| **xiaohongshu** | `search` `notifications` `feed` `me` `user` | 5 | 🔐 Browser |
+| **youtube** | `search` `video` `transcript` | 3 | 🔐 Browser |
+| **zhihu** | `hot` `search` `question` | 3 | 🔐 Browser |
+| **boss** | `search` `detail` | 2 | 🔐 Browser |
+| **coupang** | `search` `add-to-cart` | 2 | 🔐 Browser |
+| **bbc** | `news` | 1 | 🌐 Public |
+| **ctrip** | `search` | 1 | 🔐 Browser |
+| **github** | `search` | 1 | 🌐 Public |
+| **hackernews** | `top` | 1 | 🌐 Public |
+| **linkedin** | `search` | 1 | 🔐 Browser |
+| **reuters** | `search` | 1 | 🔐 Browser |
+| **smzdm** | `search` | 1 | 🔐 Browser |
+| **weibo** | `hot` | 1 | 🔐 Browser |
+| **yahoo-finance** | `quote` | 1 | 🔐 Browser |
 
 ## Output Formats
 
@@ -195,7 +200,7 @@ Explore outputs to `.opencli/explore/<site>/` (manifest.json, endpoints.json, ca
 
 See **[TESTING.md](./TESTING.md)** for the full testing guide, including:
 
-- Current test coverage (unit + ~52 E2E tests across all 18 sites)
+- Current test coverage (unit + E2E tests across 19 sites)
 - How to run tests locally
 - How to add tests when creating new adapters
 - CI/CD pipeline with sharding
