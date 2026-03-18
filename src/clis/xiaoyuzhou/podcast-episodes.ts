@@ -19,7 +19,11 @@ cli({
     const podcast = pageProps.podcast;
     if (!podcast) throw new CliError('NOT_FOUND', 'Podcast not found', 'Please check the ID');
     const allEpisodes = podcast.episodes ?? [];
-    const limit = Math.max(1, Math.min(Number(args.limit) ?? 15, allEpisodes.length));
+    const requestedLimit = Number(args.limit);
+    if (!Number.isInteger(requestedLimit) || requestedLimit < 1) {
+      throw new CliError('INVALID_ARGUMENT', 'limit must be a positive integer', 'Example: --limit 5');
+    }
+    const limit = Math.min(requestedLimit, allEpisodes.length);
     const episodes = allEpisodes.slice(0, limit);
     return episodes.map((ep: any) => ({
       eid: ep.eid,
